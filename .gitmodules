@@ -1,3 +1,9 @@
 [submodule "Django/django-sprint4"]
 	path = Django/django-sprint4
 	url = git@github.com-stxottabbl4:StXoTTaBbl4/django-sprint4.git
+[submodule "Django/django-testing"]
+	path = Django/django-testing
+	url = git@github.com-stxottabbl4:StXoTTaBbl4/django-testing.git
+[submodule "FMP/XoEQVDP"]
+	path = FMP/Homework1/
+	url = ssh://git@gl.dev.cs-uni.ru:2222/unix-omp/omp/students-2026-fall/XoEQVDP.git
