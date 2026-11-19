@@ -7,3 +7,9 @@
 [submodule "FMP/Homework1"]
 	path = FMP/Homework1
 	url = ssh://git@gl.dev.cs-uni.ru:2222/unix-omp/omp/students-2026-fall/XoEQVDP.git
+[submodule "WebAppArchitecture/homework-bot-vk"]
+	path = WebAppArchitecture/homework-bot-vk
+	url = git@github.com-stxottabbl4:StXoTTaBbl4/homework-bot-vk.git
+[submodule "WebAppArchitecture/api-yatube"]
+	path = WebAppArchitecture/api-yatube
+	url = git@github.com-stxottabbl4:StXoTTaBbl4/api-yatube.git

@@ -1,0 +1,199 @@
+-- CREATE TYPE cafe.restaurant_type AS ENUM (
+--     'coffee_shop',
+--     'restaurant',
+--     'bar',
+--     'pizzeria'
+-- );
+
+-- CREATE TABLE cafe.restaurants (
+--     restaurant_uuid uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+--     restaurant_name varchar(50) NOT NULL,
+--     location geometry(Point, 4326),
+--     type cafe.restaurant_type,
+--     menu jsonb
+-- );
+
+-- CREATE TABLE cafe.managers (
+--     manager_uuid uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+--     manager_name varchar(50) NOT NULL,
+--     manager_phone varchar(50)
+-- );
+
+-- CREATE TABLE cafe.restaurant_manager_work_dates (
+--     restaurant_uuid uuid NOT NULL
+--         REFERENCES cafe.restaurants(restaurant_uuid),
+--     manager_uuid uuid NOT NULL
+--         REFERENCES cafe.managers(manager_uuid),
+--     work_start_date date NOT NULL,
+--     work_end_date date NOT NULL,
+--     PRIMARY KEY (restaurant_uuid, manager_uuid),
+--     CHECK (work_end_date >= work_start_date)
+-- );
+
+-- CREATE TABLE cafe.sales (
+--     date date NOT NULL,
+--     restaurant_uuid uuid NOT NULL
+--         REFERENCES cafe.restaurants(restaurant_uuid),
+--     avg_check numeric(6, 2),
+--     PRIMARY KEY (date, restaurant_uuid)
+-- );
+
+-- INSERT INTO cafe.managers (manager_name, manager_phone)
+-- SELECT DISTINCT
+--     manager,
+--     manager_phone
+-- FROM raw_data.sales;
+
+-- INSERT INTO cafe.restaurants (restaurant_name, location, type, menu)
+-- SELECT
+--     s.cafe_name,
+--     ST_SetSRID(ST_MakePoint(s.longitude, s.latitude), 4326),
+--     CASE s.type
+--         WHEN 'кофейня' THEN 'coffee_shop'::cafe.restaurant_type
+--         WHEN 'ресторан' THEN 'restaurant'::cafe.restaurant_type
+--         WHEN 'бар' THEN 'bar'::cafe.restaurant_type
+--         WHEN 'пиццерия' THEN 'pizzeria'::cafe.restaurant_type
+--     END,
+--     m.menu
+-- FROM (
+--     SELECT DISTINCT cafe_name, type, latitude, longitude
+--     FROM raw_data.sales
+-- ) AS s
+-- LEFT JOIN raw_data.menu AS m
+--     ON m.cafe_name = s.cafe_name;
+
+-- INSERT INTO cafe.restaurant_manager_work_dates (
+--     restaurant_uuid, manager_uuid, work_start_date, work_end_date
+-- )
+-- SELECT
+--     r.restaurant_uuid,
+--     m.manager_uuid,
+--     MIN(s.report_date) AS work_start_date,
+--     MAX(s.report_date) AS work_end_date
+-- FROM raw_data.sales AS s
+-- JOIN cafe.restaurants AS r ON r.restaurant_name = s.cafe_name
+-- JOIN cafe.managers AS m ON m.manager_name = s.manager
+-- GROUP BY r.restaurant_uuid, m.manager_uuid;
+
+-- INSERT INTO cafe.sales (date, restaurant_uuid, avg_check)
+-- SELECT
+--     s.report_date,
+--     r.restaurant_uuid,
+--     s.avg_check
+-- FROM raw_data.sales AS s
+-- JOIN cafe.restaurants AS r
+--     ON r.restaurant_name = s.cafe_name
+-- ON CONFLICT (date, restaurant_uuid) DO NOTHING;
+
+-- CREATE OR REPLACE VIEW cafe.top_restaurants_by_avg_check AS
+-- WITH avg_checks AS (
+--     SELECT
+--         restaurant_uuid,
+--         ROUND(AVG(avg_check), 2) AS avg_check
+--     FROM cafe.sales
+--     GROUP BY restaurant_uuid
+-- ),
+-- ranked AS (
+--     SELECT
+--         r.restaurant_name AS "Название заведения",
+--         CASE r.type
+--             WHEN 'bar' THEN 'Бар'
+--             WHEN 'coffee_shop' THEN 'Кофейня'
+--             WHEN 'restaurant' THEN 'Ресторан'
+--             WHEN 'pizzeria' THEN 'Пиццерия'
+--         END AS "Тип заведения",
+--         a.avg_check AS "Средний чек",
+--         ROW_NUMBER() OVER (
+--             PARTITION BY r.type
+--             ORDER BY a.avg_check DESC
+--         ) AS rn
+--     FROM avg_checks AS a
+--     JOIN cafe.restaurants AS r
+--         ON r.restaurant_uuid = a.restaurant_uuid
+-- )
+-- SELECT
+--     "Название заведения",
+--     "Тип заведения",
+--     "Средний чек"
+-- FROM ranked
+-- WHERE rn <= 3
+-- ORDER BY "Тип заведения", "Средний чек" DESC;
+
+-- CREATE MATERIALIZED VIEW cafe.avg_check_yearly_change AS
+-- WITH yearly_avg AS (
+--     SELECT
+--         EXTRACT(YEAR FROM s.date)::int AS year,
+--         s.restaurant_uuid,
+--         ROUND(AVG(s.avg_check), 2) AS avg_check
+--     FROM cafe.sales AS s
+--     WHERE EXTRACT(YEAR FROM s.date) <> 2023
+--       AND EXTRACT(YEAR FROM s.date) <> EXTRACT(YEAR FROM CURRENT_DATE)
+--     GROUP BY EXTRACT(YEAR FROM s.date), s.restaurant_uuid
+-- ),
+-- with_lag AS (
+--     SELECT
+--         y.year,
+--         r.restaurant_name,
+--         r.type,
+--         y.avg_check AS avg_check_current,
+--         LAG(y.avg_check) OVER (
+--             PARTITION BY y.restaurant_uuid
+--             ORDER BY y.year
+--         ) AS avg_check_previous
+--     FROM yearly_avg AS y
+--     JOIN cafe.restaurants AS r
+--         ON r.restaurant_uuid = y.restaurant_uuid
+-- )
+-- SELECT
+--     year AS "Год",
+--     restaurant_name AS "Название заведения",
+--     CASE type
+--         WHEN 'bar' THEN 'Бар'
+--         WHEN 'coffee_shop' THEN 'Кофейня'
+--         WHEN 'restaurant' THEN 'Ресторан'
+--         WHEN 'pizzeria' THEN 'Пиццерия'
+--     END AS "Тип заведения",
+--     avg_check_current AS "Средний чек в этом году",
+--     avg_check_previous AS "Средний чек в предыдущем году",
+--     ROUND(
+--         (avg_check_current - avg_check_previous)
+--         / avg_check_previous * 100,
+--         2
+--     ) AS "Изменение среднего чека в %"
+-- FROM with_lag
+-- ORDER BY "Название заведения", "Год";
+
+-- SELECT
+--     r.restaurant_name AS "Название заведения",
+--     COUNT(DISTINCT wd.manager_uuid) AS "Сколько раз менялся менеджер"
+-- FROM cafe.restaurant_manager_work_dates AS wd
+-- JOIN cafe.restaurants AS r
+--     ON r.restaurant_uuid = wd.restaurant_uuid
+-- GROUP BY r.restaurant_name
+-- ORDER BY "Сколько раз менялся менеджер" DESC
+-- LIMIT 3;
+
+-- WITH pizza_counts AS (
+--     SELECT
+--         r.restaurant_name AS restaurant_name,
+--         COUNT(m.key) AS pizza_count
+--     FROM cafe.restaurants AS r
+--     CROSS JOIN LATERAL json_each_text(r.menu::json) AS m
+--     WHERE r.type = 'pizzeria'
+--     GROUP BY r.restaurant_name
+-- ),
+-- ranked AS (
+--     SELECT
+--         restaurant_name,
+--         pizza_count,
+--         DENSE_RANK() OVER (ORDER BY pizza_count DESC) AS rnk
+--     FROM pizza_counts
+-- )
+-- SELECT
+--     restaurant_name AS "Название заведения",
+--     pizza_count AS "Количество пицц в меню"
+-- FROM ranked
+-- WHERE rnk = 1
+-- ORDER BY restaurant_name;
+
+SELECT * FROM raw_data.sales;
